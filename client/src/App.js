@@ -6,8 +6,7 @@ const MAX_TEAMS = 25;
 const SQUAD_SIZE = 4;
 
 export default function App() {
-  // ===== State =====
-  const [teams, setTeams] = useState([]); // start with 0 teams; you add them
+  const [teams, setTeams] = useState([]); // you add teams manually
   const [matchStatus, setMatchStatus] = useState("waiting");
   const [elapsed, setElapsed] = useState(0);
   const [matchTimer, setMatchTimer] = useState("00:00");
@@ -29,7 +28,7 @@ export default function App() {
     setMatchTimer(`${mm}:${ss}`);
   }, [elapsed]);
 
-  // ===== Derived lobby stats and backend sync =====
+  // ===== Sync to backend (JSON for vMix) =====
   const syncData = async () => {
     const playersAlive = teams.reduce(
       (sum, t) => sum + t.players.filter((p) => p.alive).length,
@@ -46,13 +45,14 @@ export default function App() {
       match_timer: matchTimer,
       lobby_stats: { players_alive: playersAlive, teams_alive: teamsAlive, total_kills: totalKills },
       recent_events: events.slice(0, 8),
-      teams,
+      teams
     });
   };
 
   useEffect(() => {
     if (matchStatus !== "waiting") syncData();
-  }, [teams, events, matchTimer]); // eslint-disable-line
+    // eslint-disable-next-line
+  }, [teams, events, matchTimer]);
 
   // ===== Controls =====
   const startMatch = () => {
@@ -69,7 +69,7 @@ export default function App() {
   const resetMatch = () => window.location.reload();
 
   // ===== Team management =====
-  const addTeam = async (teamName, logoDataUrl) => {
+  const addTeam = (teamName, logoDataUrl) => {
     if (teams.length >= MAX_TEAMS) return alert("Max 25 teams reached.");
     const newTeam = {
       id: Date.now(),
@@ -80,24 +80,21 @@ export default function App() {
       notes: "",
       players: Array.from({ length: SQUAD_SIZE }, (_, j) => ({
         name: `Player ${j + 1}`,
-        kills: 0,
+        kills: 0,             // kept for backend JSON
+        achievement: null,     // kept for backend JSON
         alive: true,
-        survival_time: "00:00",
-        achievement: null,
-      })),
+        survival_time: "00:00"
+      }))
     };
     setTeams((prev) => [...prev, newTeam]);
   };
 
-  const removeTeam = (id) => {
-    setTeams((prev) => prev.filter((t) => t.id !== id));
-  };
+  const removeTeam = (id) => setTeams((prev) => prev.filter((t) => t.id !== id));
 
-  const updateTeam = (teamId, patch) => {
+  const updateTeam = (teamId, patch) =>
     setTeams((prev) => prev.map((t) => (t.id === teamId ? { ...t, ...patch } : t)));
-  };
 
-  const updatePlayer = (teamId, idx, patch) => {
+  const updatePlayer = (teamId, idx, patch) =>
     setTeams((prev) =>
       prev.map((t) =>
         t.id === teamId
@@ -105,9 +102,8 @@ export default function App() {
           : t
       )
     );
-  };
 
-  // ===== Kills & achievements =====
+  // ===== Backend-only kills/achievements =====
   const addKill = (teamId, playerIdx) => {
     setTeams((prev) =>
       prev.map((t) => {
@@ -128,9 +124,9 @@ export default function App() {
                 kills,
                 achievement,
                 message: `${p.name} (${t.team_name}) achieved ${achievement} with ${kills} kills!`,
-                at: new Date().toISOString(),
+                at: new Date().toISOString()
               },
-              ...ev,
+              ...ev
             ]);
           }
           return { ...p, kills, achievement };
@@ -140,40 +136,45 @@ export default function App() {
     );
   };
 
-  // ===== Player elimination (replaces Toggle) =====
+  // ===== Player elimination (auto team position when last member dies) =====
   const eliminatePlayer = (teamId, playerIdx) => {
-    setTeams((prev) =>
-      prev.map((t) => {
-        if (t.id !== teamId) return t;
-        const players = t.players.map((p, i) =>
-          i === playerIdx ? { ...p, alive: false, survival_time: matchTimer } : p
-        );
+    setTeams((prev) => {
+      const idxTeam = prev.findIndex((t) => t.id === teamId);
+      if (idxTeam === -1) return prev;
 
-        // If this action wipes the team, auto-mark team eliminated with default position
-        const wasAliveBefore = t.players.some((p) => p.alive);
-        const willBeAliveAfter = players.some((p) => p.alive);
-        let eliminatedPatch = {};
-        if (wasAliveBefore && !willBeAliveAfter && !t.eliminated) {
-          const aliveTeamsBefore = prev.filter((x) => x.players.some((p) => p.alive)).length; // includes this team
-          const defaultPosition = aliveTeamsBefore; // first out gets Nth (N = alive teams before)
-          eliminatedPatch = { eliminated: true, position: defaultPosition };
-          setEvents((ev) => [
-            {
-              type: "elimination",
-              team: t.team_name,
-              position: defaultPosition,
-              message: `${t.team_name} Eliminated – ${defaultPosition}th Place`,
-              at: new Date().toISOString(),
-            },
-            ...ev,
-          ]);
-        }
-        return { ...t, ...eliminatedPatch, players };
-      })
-    );
+      const team = prev[idxTeam];
+      const newPlayers = team.players.map((p, i) =>
+        i === playerIdx ? { ...p, alive: false, survival_time: matchTimer } : p
+      );
+
+      const willBeAliveAfter = newPlayers.some((p) => p.alive);
+      let newTeam = { ...team, players: newPlayers };
+
+      // If this eliminates the whole team, auto-assign position
+      if (!willBeAliveAfter && !team.eliminated) {
+        const teamsAliveBefore = prev.filter((tt) => tt.players.some((p) => p.alive)).length;
+        const autoPos = Math.max(1, teamsAliveBefore); // first wipe gets Nth where N=alive before
+        newTeam = { ...newTeam, eliminated: true, position: autoPos };
+
+        // Event for vMix
+        const ev = {
+          type: "elimination",
+          team: team.team_name,
+          position: autoPos,
+          message: `${team.team_name} Eliminated – ${autoPos}th Place`,
+          at: new Date().toISOString()
+        };
+        // push event (outside returned array to avoid mutating during map)
+        setEvents((e) => [ev, ...e]);
+      }
+
+      const next = [...prev];
+      next[idxTeam] = newTeam;
+      return next;
+    });
   };
 
-  // ===== Manual team elimination (dropdown override) =====
+  // ===== Manual position override (dropdown) =====
   const setTeamEliminatedWithPosition = (teamId, pos) => {
     setTeams((prev) =>
       prev.map((t) =>
@@ -182,27 +183,30 @@ export default function App() {
               ...t,
               eliminated: true,
               position: pos,
-              players: t.players.map((p) => (p.alive ? { ...p, alive: false, survival_time: matchTimer } : p)),
+              players: t.players.map((p) =>
+                p.alive ? { ...p, alive: false, survival_time: matchTimer } : p
+              )
             }
           : t
       )
     );
-    const team = teams.find((t) => t.id === teamId);
-    if (team) {
+
+    const tm = teams.find((t) => t.id === teamId);
+    if (tm) {
       setEvents((ev) => [
         {
           type: "elimination",
-          team: team.team_name,
+          team: tm.team_name,
           position: pos,
-          message: `${team.team_name} Eliminated – ${pos}th Place`,
-          at: new Date().toISOString(),
+          message: `${tm.team_name} Eliminated – ${pos}th Place`,
+          at: new Date().toISOString()
         },
-        ...ev,
+        ...ev
       ]);
     }
   };
 
-  // ===== UI helpers =====
+  // ===== Logo file helper =====
   const handleLogoFile = (file, onReady) => {
     if (!file) return onReady("");
     const reader = new FileReader();
@@ -210,12 +214,11 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // ===== Render =====
   return (
     <div className="p-4" style={{ fontFamily: "Arial, sans-serif" }}>
       <h1 className="text-2xl font-bold mb-4">BGMI Tournament Dashboard</h1>
 
-      {/* Control bar */}
+      {/* Controls */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <button onClick={startMatch} style={btn("green")}>Start Match</button>
         <button onClick={endMatch} style={btn("red")}>End Match</button>
@@ -231,15 +234,13 @@ export default function App() {
       <div style={{ margin: "8px 0", opacity: 0.8 }}>Teams: {teams.length}/{MAX_TEAMS}</div>
 
       {/* Teams Grid */}
-      <div className="grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px,1fr))", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(360px,1fr))", gap: 12 }}>
         {teams.map((team) => (
-          <div key={team.id} className="card" style={{
-            border: "1px solid #ddd",
-            borderRadius: 8,
-            padding: 12,
+          <div key={team.id} style={{
+            border: "1px solid #ddd", borderRadius: 8, padding: 12,
             background: team.eliminated ? "#ffe5e5" : "#fff"
           }}>
-            {/* Team header */}
+            {/* Header */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
               {team.logo ? (
                 <img src={team.logo} alt="logo" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover" }} />
@@ -254,7 +255,7 @@ export default function App() {
               <button onClick={() => removeTeam(team.id)} style={btn("gray")}>Remove</button>
             </div>
 
-            {/* Players */}
+            {/* Players (no kills/achievements shown in UI) */}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {team.players.map((p, idx) => (
                 <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -263,26 +264,28 @@ export default function App() {
                     value={p.name}
                     onChange={(e) => updatePlayer(team.id, idx, { name: e.target.value })}
                   />
-                  <span style={{ minWidth: 60, textAlign: "center" }}>{p.alive ? "✅ Alive" : "☠️ Dead"}</span>
+                  <span style={{ minWidth: 60, textAlign: "center" }}>
+                    {p.alive ? "✅ Alive" : "☠️ Dead"}
+                  </span>
 
-                  {/* Replace Toggle → Eliminate */}
+                  {/* Eliminate player (records survival time) */}
                   <button
                     disabled={!p.alive}
                     onClick={() => eliminatePlayer(team.id, idx)}
                     style={btn(p.alive ? "orange" : "gray")}
-                    title="Mark this player eliminated"
                   >
                     Eliminate
                   </button>
 
-                  <button onClick={() => addKill(team.id, idx)} style={btn("blue")}>+ Kill</button>
-                  <span>({p.kills})</span>
-                  {p.achievement && <span style={{ marginLeft: 6, fontWeight: "bold", color: "#6b21a8" }}>{p.achievement}</span>}
+                  {/* Keep +Kill for backend JSON (hidden counters in UI) */}
+                  <button onClick={() => addKill(team.id, idx)} style={btn("blue")}>
+                    + Kill
+                  </button>
                 </div>
               ))}
             </div>
 
-            {/* Team elimination & position */}
+            {/* Team elimination & manual position dropdown */}
             <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
               {!team.eliminated ? (
                 <>
@@ -320,7 +323,7 @@ export default function App() {
         ))}
       </div>
 
-      {/* Popups (top 3 recent events) */}
+      {/* Popups for latest events */}
       <div style={{ position: "fixed", right: 16, bottom: 16, width: 320 }}>
         {events.slice(0, 3).map((ev, i) => (
           <div key={i} style={{
@@ -336,7 +339,7 @@ export default function App() {
   );
 }
 
-/* ========== Small components / helpers ========== */
+/* ===== helpers ===== */
 
 function AddTeamForm({ disabled, onAdd }) {
   const [name, setName] = useState("");
@@ -377,7 +380,7 @@ function btn(color) {
     red: "#ef4444",
     gray: "#6b7280",
     blue: "#3b82f6",
-    orange: "#f59e0b",
+    orange: "#f59e0b"
   };
   return {
     background: map[color] || "#111827",
@@ -385,6 +388,6 @@ function btn(color) {
     border: "none",
     padding: "6px 12px",
     borderRadius: 6,
-    cursor: "pointer",
+    cursor: "pointer"
   };
 }
