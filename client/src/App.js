@@ -35,8 +35,10 @@ export default function App() {
       0
     );
     const teamsAlive = teams.filter((t) => t.players.some((p) => p.alive)).length;
+
+    // total_kills still computed from model (will be 0 unless updated programmatically)
     const totalKills = teams.reduce(
-      (sum, t) => sum + t.players.reduce((s, p) => s + p.kills, 0),
+      (sum, t) => sum + t.players.reduce((s, p) => s + (p.kills || 0), 0),
       0
     );
 
@@ -44,6 +46,7 @@ export default function App() {
       match_status: matchStatus,
       match_timer: matchTimer,
       lobby_stats: { players_alive: playersAlive, teams_alive: teamsAlive, total_kills: totalKills },
+      // We keep all events in JSON for vMix; UI will only render eliminations
       recent_events: events.slice(0, 8),
       teams
     });
@@ -80,8 +83,9 @@ export default function App() {
       notes: "",
       players: Array.from({ length: SQUAD_SIZE }, (_, j) => ({
         name: `Player ${j + 1}`,
-        kills: 0,             // kept for backend JSON
-        achievement: null,     // kept for backend JSON
+        // kept in model for backend/vMix; not shown in UI:
+        kills: 0,
+        achievement: null,
         alive: true,
         survival_time: "00:00"
       }))
@@ -103,39 +107,6 @@ export default function App() {
       )
     );
 
-  // ===== Backend-only kills/achievements =====
-  const addKill = (teamId, playerIdx) => {
-    setTeams((prev) =>
-      prev.map((t) => {
-        if (t.id !== teamId) return t;
-        const players = t.players.map((p, i) => {
-          if (i !== playerIdx) return p;
-          const kills = p.kills + 1;
-          let achievement = p.achievement;
-          if (kills === 3) achievement = "DOMINATION";
-          if (kills === 5) achievement = "RAMPAGE";
-          if (kills === 7) achievement = "UNSTOPPABLE";
-          if (achievement) {
-            setEvents((ev) => [
-              {
-                type: "achievement",
-                team: t.team_name,
-                player: p.name,
-                kills,
-                achievement,
-                message: `${p.name} (${t.team_name}) achieved ${achievement} with ${kills} kills!`,
-                at: new Date().toISOString()
-              },
-              ...ev
-            ]);
-          }
-          return { ...p, kills, achievement };
-        });
-        return { ...t, players };
-      })
-    );
-  };
-
   // ===== Player elimination (auto team position when last member dies) =====
   const eliminatePlayer = (teamId, playerIdx) => {
     setTeams((prev) => {
@@ -156,7 +127,7 @@ export default function App() {
         const autoPos = Math.max(1, teamsAliveBefore); // first wipe gets Nth where N=alive before
         newTeam = { ...newTeam, eliminated: true, position: autoPos };
 
-        // Event for vMix
+        // Event for vMix (UI will only show elimination events)
         const ev = {
           type: "elimination",
           team: team.team_name,
@@ -164,7 +135,6 @@ export default function App() {
           message: `${team.team_name} Eliminated – ${autoPos}th Place`,
           at: new Date().toISOString()
         };
-        // push event (outside returned array to avoid mutating during map)
         setEvents((e) => [ev, ...e]);
       }
 
@@ -255,7 +225,7 @@ export default function App() {
               <button onClick={() => removeTeam(team.id)} style={btn("gray")}>Remove</button>
             </div>
 
-            {/* Players (no kills/achievements shown in UI) */}
+            {/* Players (NO kills/achievements shown in UI) */}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {team.players.map((p, idx) => (
                 <div key={idx} style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -273,13 +243,9 @@ export default function App() {
                     disabled={!p.alive}
                     onClick={() => eliminatePlayer(team.id, idx)}
                     style={btn(p.alive ? "orange" : "gray")}
+                    title="Mark this player eliminated"
                   >
                     Eliminate
-                  </button>
-
-                  {/* Keep +Kill for backend JSON (hidden counters in UI) */}
-                  <button onClick={() => addKill(team.id, idx)} style={btn("blue")}>
-                    + Kill
                   </button>
                 </div>
               ))}
@@ -323,12 +289,12 @@ export default function App() {
         ))}
       </div>
 
-      {/* Popups for latest events */}
+      {/* Popups: ONLY elimination events (no kills/achievements popups in UI) */}
       <div style={{ position: "fixed", right: 16, bottom: 16, width: 320 }}>
-        {events.slice(0, 3).map((ev, i) => (
+        {events.filter(ev => ev.type === "elimination").slice(0, 3).map((ev, i) => (
           <div key={i} style={{
             marginBottom: 8, padding: 10, color: "#fff",
-            background: ev.type === "elimination" ? "#ef4444" : "#111827",
+            background: "#ef4444",
             borderRadius: 8, boxShadow: "0 2px 6px rgba(0,0,0,.25)"
           }}>
             {ev.message}
