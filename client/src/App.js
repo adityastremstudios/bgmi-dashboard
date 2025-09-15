@@ -6,13 +6,13 @@ const MAX_TEAMS = 25;
 const SQUAD_SIZE = 4;
 
 export default function App() {
-  const [teams, setTeams] = useState([]);            // you add teams
+  const [teams, setTeams] = useState([]);           // start empty, you add teams
   const [matchStatus, setMatchStatus] = useState("waiting");
   const [elapsed, setElapsed] = useState(0);
   const [matchTimer, setMatchTimer] = useState("00:00");
-  const [events, setEvents] = useState([]);          // goes to JSON for vMix
+  const [events, setEvents] = useState([]);         // goes to JSON for vMix
 
-  // ===== Timer =====
+  // ---- timer ----
   useEffect(() => {
     if (matchStatus !== "live") return;
     const id = setInterval(() => setElapsed((s) => s + 1), 1000);
@@ -25,12 +25,13 @@ export default function App() {
     setMatchTimer(`${mm}:${ss}`);
   }, [elapsed]);
 
-  // ===== Derived stats + Sync =====
+  // ---- derived stats ----
   const playersAlive = teams.reduce((sum, t) => sum + t.players.filter(p => p.alive).length, 0);
   const teamsAlive = teams.filter(t => t.players.some(p => p.alive)).length;
   const totalPlayers = teams.length * SQUAD_SIZE;
   const totalKills = teams.reduce((sum, t) => sum + t.players.reduce((s, p) => s + (p.kills || 0), 0), 0);
 
+  // ---- sync to backend ----
   useEffect(() => {
     if (matchStatus === "waiting") return;
     axios.post(`${API_URL}/update`, {
@@ -42,17 +43,17 @@ export default function App() {
     }).catch(() => {});
   }, [teams, events, matchTimer]); // eslint-disable-line
 
-  // ===== Controls =====
+  // ---- controls ----
   const startMatch = () => { setElapsed(0); setMatchStatus("live"); };
   const endMatch = async () => {
     setMatchStatus("ended");
     await axios.post(`${API_URL}/end-match`, { teams }).catch(() => {});
   };
 
-  // ===== Team management =====
+  // ---- team management ----
   const addTeam = (team_name, slot, logo) => {
-    if (teams.length >= MAX_TEAMS) return alert("Max 25 teams.");
-    const newTeam = {
+    if (teams.length >= MAX_TEAMS) { alert("Max 25 teams."); return; }
+    const t = {
       id: Date.now(),
       team_name: team_name || `Team ${teams.length + 1}`,
       slot: slot || teams.length + 1,
@@ -62,26 +63,23 @@ export default function App() {
       players: Array.from({ length: SQUAD_SIZE }, (_, j) => ({
         name: `PLAYER ${j + 1}`,
         kills: 0,
-        achievement: null,   // backend only
+        achievement: null,
         alive: true,
         knocked: false,
         survival_time: "00:00"
       }))
     };
-    setTeams(prev => [...prev, newTeam]);
+    setTeams(prev => [...prev, t]);
   };
 
   const removeTeam = (id) => setTeams(prev => prev.filter(t => t.id !== id));
-
-  const updateTeam = (id, patch) =>
-    setTeams(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
-
+  const updateTeam = (id, patch) => setTeams(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
   const updatePlayer = (teamId, idx, patch) =>
     setTeams(prev => prev.map(t =>
       t.id === teamId ? { ...t, players: t.players.map((p, i) => i === idx ? { ...p, ...patch } : p) } : t
     ));
 
-  // ===== Kills (visible in UI) =====
+  // ---- kills (UI visible) ----
   const bumpKills = (teamId, idx, delta) => {
     setTeams(prev => prev.map(t => {
       if (t.id !== teamId) return t;
@@ -109,17 +107,11 @@ export default function App() {
     }));
   };
 
-  // ===== Knock / Elim =====
-  const setKnock = (teamId, idx, value) => {
-    updatePlayer(teamId, idx, { knocked: value });
-  };
+  // ---- knock / elim ----
+  const setKnock = (teamId, idx, value) => updatePlayer(teamId, idx, { knocked: !!value });
 
   const setElim = (teamId, idx, value) => {
-    // value true means eliminated
-    if (!value) {
-      updatePlayer(teamId, idx, { alive: true }); // un-elim (rare)
-      return;
-    }
+    if (!value) { updatePlayer(teamId, idx, { alive: true }); return; }
     setTeams(prev => {
       const next = prev.map(t => {
         if (t.id !== teamId) return t;
@@ -127,7 +119,6 @@ export default function App() {
           i === idx ? { ...p, alive: false, knocked: false, survival_time: matchTimer } : p
         );
         let patch = {};
-        // if all dead now → auto team elimination + position
         if (!players.some(p => p.alive) && !t.eliminated) {
           const teamsAliveBefore = prev.filter(tt => tt.players.some(p => p.alive)).length;
           const autoPos = Math.max(1, teamsAliveBefore);
@@ -149,8 +140,7 @@ export default function App() {
   const manualElimAndPosition = (teamId, pos) => {
     setTeams(prev => prev.map(t =>
       t.id === teamId
-        ? {
-            ...t,
+        ? { ...t,
             eliminated: true,
             position: pos,
             players: t.players.map(p => p.alive ? { ...p, alive: false, knocked: false, survival_time: matchTimer } : p)
@@ -169,7 +159,7 @@ export default function App() {
     }
   };
 
-  // ===== Logo upload helper =====
+  // ---- logo helper ----
   const toDataURL = (file, cb) => {
     if (!file) return cb("");
     const r = new FileReader();
@@ -178,95 +168,90 @@ export default function App() {
   };
 
   return (
-    <div className="ui-root">
-      {/* Header */}
-      <div className="topbar">
+    <div style={{ padding: 16, background: "#0f172a", minHeight: "100vh", color: "#e5e7eb" }}>
+      {/* header */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <div>
-          <div className="match-title">MATCH 1</div>
-          <div className="match-sub">GRAND FINALS • customize here</div>
+          <div style={{ fontSize: 26, fontWeight: 800 }}>MATCH 1</div>
+          <div style={{ color: "#94a3b8" }}>GRAND FINALS • customize here</div>
         </div>
-        <div className="badges">
-          <Badge color="green" label={`${teamsAlive}`} sub="ALIVE TEAMS" />
-          <Badge color="orange" label={`${totalKills}`} sub="KILL COUNT" />
-          <Badge color="purple" label={`${playersAlive}/${totalPlayers || 0}`} sub="PLAYERS" />
+        <div style={{ display: "flex", gap: 8, marginLeft: 16 }}>
+          <Badge color="#22c55e" label={`${teamsAlive}`} sub="ALIVE TEAMS" />
+          <Badge color="#f59e0b" label={`${totalKills}`} sub="KILL COUNT" />
+          <Badge color="#a855f7" label={`${playersAlive}/${totalPlayers || 0}`} sub="PLAYERS" />
         </div>
-        <div className="actions">
-          <button className="btn btn-live" disabled={matchStatus === "live"}>Currently Live</button>
-          <button className="btn btn-primary" onClick={startMatch}>Start Match Timer</button>
-          <div className="timer">⏱ {matchTimer}</div>
-          <button className="btn" onClick={endMatch}>End</button>
+        <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center" }}>
+          <button style={btn("#22c55e", "#06110a")} onClick={startMatch}>Start Match Timer</button>
+          <div style={{ fontWeight: 700 }}>⏱ {matchTimer}</div>
+          <button style={btn("#374151")} onClick={endMatch}>End</button>
         </div>
       </div>
 
-      {/* Search + Add Team */}
-      <AddTeamBar onAdd={(name, slot, file) => toDataURL(file, (logo) => addTeam(name, slot, logo))} count={teams.length} />
+      {/* add team */}
+      <AddTeamBar onAdd={(name, slot, file) => toDataURL(file, (logo) => addTeam(name, Number(slot) || undefined, logo))} count={teams.length} />
 
-      {/* Grid */}
-      <div className="grid">
+      {/* grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(360px,1fr))", gap: 12 }}>
         {teams.map((team, idx) => (
-          <div key={team.id} className="card" style={{ borderTopColor: colorByIndex(idx) }}>
-            {/* Card header */}
-            <div className="card-head">
-              <div className="left">
-                <div className="slot">#{team.slot}</div>
+          <div key={team.id} style={{ background: "#111827", borderRadius: 12, borderTop: `4px solid ${colorByIndex(idx)}` }}>
+            {/* header */}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 10px 6px" }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ background: "#0b1220", border: "1px solid #334155", padding: "2px 6px", borderRadius: 6, fontWeight: 700, color: "#93c5fd" }}>#{team.slot}</div>
                 <input
-                  className="team-name-input"
                   value={team.team_name}
                   onChange={(e) => updateTeam(team.id, { team_name: e.target.value })}
+                  style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, color: "#e5e7eb", padding: "6px 8px", minWidth: 160 }}
                 />
               </div>
-              <div className="right">
-                <div className="kbadge">K: {team.players.reduce((s,p)=>s+(p.kills||0),0)}</div>
-                <div className={`pill ${team.eliminated ? "pill-elim" : "pill-alive"}`}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div style={{ background: "#0b1220", border: "1px solid #334155", borderRadius: 16, padding: "2px 8px", color: "#fbbf24", fontWeight: 800 }}>
+                  K: {team.players.reduce((s,p)=>s+(p.kills||0),0)}
+                </div>
+                <div style={{ borderRadius: 8, padding: "4px 8px", fontWeight: 700, background: team.eliminated ? "#3f1d1d" : "#064e3b", color: team.eliminated ? "#fecaca" : "#a7f3d0" }}>
                   {team.eliminated ? `#${team.position ?? "-"}` : "ALIVE"}
                 </div>
               </div>
             </div>
 
-            {/* Players table */}
-            <div className="rows">
+            {/* players */}
+            <div style={{ padding: "8px 10px 2px", display: "flex", flexDirection: "column", gap: 6 }}>
               {team.players.map((p, i) => (
-                <div key={i} className="row">
-                  <div className="pname">
-                    <input
-                      value={p.name}
-                      onChange={(e) => updatePlayer(team.id, i, { name: e.target.value })}
-                    />
-                  </div>
-
-                  <label className="chk">
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, background: "#1f2937", border: "1px solid #334155", borderRadius: 8, padding: 6 }}>
+                  <input
+                    value={p.name}
+                    onChange={(e) => updatePlayer(team.id, i, { name: e.target.value })}
+                    style={{ background: "transparent", border: "1px solid #334155", borderRadius: 6, color: "#e5e7eb", padding: "6px 8px", minWidth: 160 }}
+                  />
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#cbd5e1", fontSize: 12 }}>
                     <input type="checkbox" checked={!!p.knocked} onChange={(e)=>setKnock(team.id, i, e.target.checked)} />
                     <span>KNOCK</span>
                   </label>
-
-                  <label className="chk">
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#cbd5e1", fontSize: 12 }}>
                     <input type="checkbox" checked={!p.alive} onChange={(e)=>setElim(team.id, i, e.target.checked)} />
                     <span>ELIM</span>
                   </label>
-
-                  <div className="kills">
-                    <button className="btn-mini" onClick={()=>bumpKills(team.id, i, -1)}>–</button>
-                    <div className="kills-num">{p.kills}</div>
-                    <button className="btn-mini" onClick={()=>bumpKills(team.id, i, +1)}>+</button>
+                  <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                    <button style={btnMini()} onClick={()=>bumpKills(team.id, i, -1)}>–</button>
+                    <div style={{ minWidth: 26, textAlign: "center", fontWeight: 800 }}>{p.kills}</div>
+                    <button style={btnMini()} onClick={()=>bumpKills(team.id, i, +1)}>+</button>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Position control */}
-            <div className="posbar">
+            {/* position bar */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px 12px" }}>
               <span>Update Position</span>
               <select
                 value={team.position || ""}
                 onChange={(e)=> manualElimAndPosition(team.id, Number(e.target.value))}
+                style={{ background: "#1f2937", border: "1px solid #334155", color: "#e5e7eb", borderRadius: 6, padding: 6 }}
               >
                 <option value="">—</option>
-                {Array.from({ length: 25 }, (_, n) => n + 1).map(n=>(
-                  <option key={n} value={n}>{n}</option>
-                ))}
+                {Array.from({ length: 25 }, (_, n) => n + 1).map(n => <option key={n} value={n}>{n}</option>)}
               </select>
-
-              <button className="btn ghost" onClick={()=>removeTeam(team.id)}>Remove Team</button>
+              <button style={btn("#0b1220","#e5e7eb","#334155")} onClick={()=>removeTeam(team.id)}>Remove Team</button>
             </div>
           </div>
         ))}
@@ -275,13 +260,11 @@ export default function App() {
   );
 }
 
-/* ---------- components ---------- */
-
 function Badge({ color, label, sub }) {
   return (
-    <div className={`badge badge-${color}`}>
-      <div className="b-main">{label}</div>
-      <div className="b-sub">{sub}</div>
+    <div style={{ background: "#111827", borderRadius: 8, padding: "6px 10px", minWidth: 100, textAlign: "center", outline: `1px solid ${color}` }}>
+      <div style={{ fontWeight: 800, color }}>{label}</div>
+      <div style={{ fontSize: 11, color: "#94a3b8" }}>{sub}</div>
     </div>
   );
 }
@@ -292,34 +275,21 @@ function AddTeamBar({ onAdd, count }) {
   const [file, setFile] = useState(null);
 
   return (
-    <div className="addbar">
-      <div className="add-left">
-        <input placeholder="Search… (not wired)" className="search" />
-      </div>
-      <div className="add-right">
-        <input
-          className="inp"
-          placeholder="Team name"
-          value={name}
-          onChange={(e)=>setName(e.target.value)}
-        />
-        <input
-          className="inp short"
-          placeholder="Slot #"
-          value={slot}
-          onChange={(e)=>setSlot(e.target.value)}
-        />
-        <input className="inp" type="file" accept="image/*" onChange={(e)=>setFile(e.target.files?.[0] || null)} />
-        <button className="btn btn-primary" onClick={()=>onAdd(name.trim(), Number(slot) || undefined, file)}>+ Add Team</button>
-        <div className="count">{count}/25</div>
+    <div style={{ background: "#111827", borderRadius: 10, padding: 10, display: "flex", alignItems: "center", gap: 12, margin: "10px 0" }}>
+      <input placeholder="Search… (not wired)" style={inp()} />
+      <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+        <input placeholder="Team name" value={name} onChange={(e)=>setName(e.target.value)} style={inp()} />
+        <input placeholder="Slot #" value={slot} onChange={(e)=>setSlot(e.target.value)} style={{ ...inp(), width: 90 }} />
+        <input type="file" accept="image/*" onChange={(e)=>setFile(e.target.files?.[0] || null)} style={{ color: "#cbd5e1" }} />
+        <button onClick={()=>onAdd(name.trim(), slot, file)} style={btn("#22c55e","#06110a")}>+ Add Team</button>
+        <div style={{ color: "#94a3b8" }}>{count}/25</div>
       </div>
     </div>
   );
 }
 
-/* ---------- helpers ---------- */
-
-function colorByIndex(i){
-  const palette = ["#7c3aed","#0ea5e9","#10b981","#f97316","#06b6d4","#a78bfa","#f59e0b","#22c55e"];
-  return palette[i % palette.length];
-}
+/* ---- tiny style helpers (no external CSS needed to render) ---- */
+function btn(bg, color="#fff", border="#0000"){ return { background:bg, color, border:`1px solid ${border}`, borderRadius:8, padding:"8px 10px", cursor:"pointer" }; }
+function btnMini(){ return { background:"#0b1220", border:"1px solid #334155", color:"#e5e7eb", borderRadius:6, padding:"4px 8px", cursor:"pointer" }; }
+function inp(){ return { background:"#1f2937", border:"1px solid #334155", color:"#e5e7eb", borderRadius:8, padding:8 }; }
+function colorByIndex(i){ const p=["#7c3aed","#0ea5e9","#10b981","#f97316","#06b6d4","#a78bfa","#f59e0b","#22c55e"]; return p[i%p.length]; }
