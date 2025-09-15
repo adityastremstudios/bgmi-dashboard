@@ -1,0 +1,7 @@
+{
+  "match_status": "waiting",
+  "match_timer": "00:00",
+  "lobby_stats": { "players_alive": 0, "teams_alive": 0, "total_kills": 0 },
+  "recent_events": [],
+  "teams": []
+}
