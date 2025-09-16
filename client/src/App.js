@@ -51,6 +51,12 @@ export default function App() {
     await axios.post(`${API_URL}/end-match`, { teams }).catch(() => {});
   };
 
+  // 👉 ADD RESET TIMER HERE
+  const resetTimer = () => {
+    setElapsed(0);
+    setMatchTimer("00:00");
+  };
+
   // ---------- Team helpers ----------
   const addTeam = (team_name, slot) => {
     if (teams.length >= MAX_TEAMS) return alert("Max 25 teams.");
