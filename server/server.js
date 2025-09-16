@@ -42,17 +42,25 @@ app.post("/end-match", async (req, res) => {
 });
 
 // Reset match
-app.post("/reset", (req, res) => {
-  liveData = {
-    match_status: "waiting",
-    match_timer: "00:00",
-    lobby_stats: { players_alive: 0, teams_alive: 0, total_kills: 0 },
-    recent_events: [],
-    teams: []
-  };
-  fs.writeFileSync(JSON_PATH, JSON.stringify(liveData, null, 2));
-  res.json({ success: true });
+app.post("/end-match", async (req, res) => {
+  try {
+    const { teams = [], match_timer = "00:00", lobby_stats = {} } = req.body || {};
+    const sheetTitle = `Match ${Date.now()}`; // or auto-increment match counter
+
+    await writeMatchToSheet({
+      sheetTitle,
+      matchTimer: match_timer,
+      lobbyStats: lobby_stats,
+      teams
+    });
+
+    res.json({ ok: true, message: "Match ended and pushed to Google Sheets" });
+  } catch (err) {
+    console.error("end-match error:", err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
+
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
