@@ -1,65 +1,56 @@
-import express from "express";
-import fs from "fs";
-import cors from "cors";
-import { saveMatchData } from "./googleSheets.js";
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
+const { writeMatchToSheet } = require("./googleSheets");
+const { saveMatchData, updateLiveData, getLiveData } = require("./firebase");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(bodyParser.json());
 
-const JSON_PATH = "./server/liveData.json";
+let matchCounter = 0;
 
-// Default match state
-let liveData = {
-  match_status: "waiting",
-  match_timer: "00:00",
-  lobby_stats: { players_alive: 0, teams_alive: 0, total_kills: 0 },
-  recent_events: [],
-  teams: []
-};
-
-// Serve live JSON for vMix
-app.get("/live.json", (req, res) => {
-  res.json(liveData);
-});
-
-// Update from frontend
-app.post("/update", (req, res) => {
-  liveData = { ...liveData, ...req.body };
-  fs.writeFileSync(JSON_PATH, JSON.stringify(liveData, null, 2));
-  res.json({ success: true });
-});
-
-// Save to Google Sheets
-app.post("/end-match", async (req, res) => {
+// Update live match state (Firestore only)
+app.post("/update", async (req, res) => {
   try {
-    await saveMatchData(req.body);
-    res.json({ success: true, message: "Match saved to Google Sheets" });
+    await updateLiveData(req.body);
+    res.json({ ok: true });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error("update error:", err);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Reset match
+// Live JSON for vMix (from Firestore)
+app.get("/live.json", async (req, res) => {
+  try {
+    const data = await getLiveData();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// End match → save to Firestore + Google Sheets
 app.post("/end-match", async (req, res) => {
   try {
     const { teams = [], match_timer = "00:00", lobby_stats = {} } = req.body || {};
-    const sheetTitle = `Match ${Date.now()}`; // or auto-increment match counter
+    matchCounter += 1;
+    const sheetTitle = `Match ${matchCounter}`;
 
-    await writeMatchToSheet({
-      sheetTitle,
-      matchTimer: match_timer,
-      lobbyStats: lobby_stats,
-      teams
-    });
+    // Save to Firestore
+    await saveMatchData(matchCounter, req.body);
 
-    res.json({ ok: true, message: "Match ended and pushed to Google Sheets" });
+    // Save to Google Sheets
+    await writeMatchToSheet({ sheetTitle, matchTimer: match_timer, lobbyStats: lobby_stats, teams });
+
+    res.json({ ok: true, match: matchCounter, sheetTitle });
   } catch (err) {
     console.error("end-match error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
+// Port for Render
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
