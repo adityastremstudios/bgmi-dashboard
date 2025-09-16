@@ -1,59 +1,57 @@
-import { google } from "googleapis";
+const { google } = require("googleapis");
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: "credentials.json", // downloaded from Google Cloud
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-});
-
-const sheets = google.sheets({ version: "v4", auth });
-
-// Your spreadsheet ID
-const SPREADSHEET_ID = "1zdakAy6Pcn20J547ZVhLo7-uY6cJRXliaDBt_BUDiGw";
-
-async function getNextMatchId() {
-  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
-  const titles = spreadsheet.data.sheets.map(s => s.properties.title);
-  const matchTabs = titles.filter(t => t.startsWith("Match_"));
-  if (matchTabs.length === 0) return 1;
-  const nums = matchTabs.map(t => parseInt(t.replace("Match_", ""), 10)).filter(n => !isNaN(n));
-  return Math.max(...nums) + 1;
+async function getSheetsClient() {
+  const auth = new google.auth.GoogleAuth({
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
+  return google.sheets({ version: "v4", auth: await auth.getClient() });
 }
 
-export async function saveMatchData(matchData) {
-  const matchId = await getNextMatchId();
-  const title = `Match_${matchId}`;
+async function writeMatchToSheet({ sheetTitle, matchTimer, lobbyStats, teams }) {
+  const spreadsheetId = process.env.SHEET_ID;
+  const sheets = await getSheetsClient();
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: SPREADSHEET_ID,
-    requestBody: { requests: [{ addSheet: { properties: { title } } }] }
-  });
+  // Ensure tab exists
+  const meta = await sheets.spreadsheets.get({ spreadsheetId });
+  const titles = meta.data.sheets.map(s => s.properties.title);
+  if (!titles.includes(sheetTitle)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: sheetTitle } } }] }
+    });
+  }
 
-  const header = [
-    "Team Name", "Logo", "Position",
-    "Player 1", "Kills", "Survival Time", "Achievement",
-    "Player 2", "Kills", "Survival Time", "Achievement",
-    "Player 3", "Kills", "Survival Time", "Achievement",
-    "Player 4", "Kills", "Survival Time", "Achievement",
-    "Team Kills", "Notes"
+  // Build rows
+  const rows = [
+    ["Match Timer", matchTimer, "", "Players Alive", lobbyStats.players_alive, "Teams Alive", lobbyStats.teams_alive, "Total Kills", lobbyStats.total_kills],
+    [],
+    ["Team", "Player", "Kills", "Alive", "Survival Time", "Knocked", "Position", "Team Eliminated"]
   ];
 
-  const rows = matchData.teams.map(team => {
-    const players = team.players.flatMap(p => [
-      p.name,
-      p.kills,
-      p.survival_time,
-      p.achievement || ""
-    ]);
-    const totalKills = team.players.reduce((sum, p) => sum + p.kills, 0);
-    return [team.team_name, team.logo, team.position, ...players, totalKills, team.notes || ""];
+  teams.forEach(t => {
+    t.players.forEach(p => {
+      rows.push([
+        t.team_name,
+        p.name,
+        p.kills || 0,
+        p.alive ? "Yes" : "No",
+        p.survival_time || "",
+        p.knocked ? "Yes" : "No",
+        t.position ?? "",
+        t.eliminated ? "Yes" : "No"
+      ]);
+    });
   });
 
+  // Clear + write
+  const range = `${sheetTitle}!A1:H1000`;
+  await sheets.spreadsheets.values.clear({ spreadsheetId, range });
   await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: `${title}!A1`,
+    spreadsheetId,
+    range,
     valueInputOption: "RAW",
-    requestBody: { values: [header, ...rows] }
+    requestBody: { values: rows }
   });
-
-  console.log(`✅ Saved ${title} to Google Sheets`);
 }
+
+module.exports = { writeMatchToSheet };
