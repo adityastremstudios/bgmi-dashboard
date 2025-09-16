@@ -196,9 +196,10 @@ export default function App() {
           <Badge color="#a855f7" label={`${playersAlive}/${totalPlayers||0}`} sub="PLAYERS" />
         </div>
         <div style={s.actions}>
-          <button onClick={startMatch} style={btn("#22c55e","#06110a")}>Start Match Timer</button>
-          <div style={{fontWeight:700}}>⏱ {matchTimer}</div>
-          <button onClick={endMatch} style={btn("#374151")}>End</button>
+          <button className="btn btn-primary" onClick={startMatch}>Start</button>
+          <div className="timer">⏱ {matchTimer}</div>
+          <button className="btn" onClick={resetTimer}>Reset</button>
+          <button className="btn danger" onClick={endMatch}>End & Push to Sheets</button>
         </div>
       </div>
 
