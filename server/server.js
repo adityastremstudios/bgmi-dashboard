@@ -1,4 +1,11 @@
+const express = require("express");
+const cors = require("cors");
+const bodyParser = require("body-parser");
 const { saveMatchData, updateLiveData, getLiveData } = require("./firebase");
+
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
 
 let matchCounter = 0;
 
@@ -8,6 +15,7 @@ app.post("/update", async (req, res) => {
     await updateLiveData(req.body);
     res.json({ ok: true });
   } catch (err) {
+    console.error("Update error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -18,6 +26,7 @@ app.get("/live.json", async (req, res) => {
     const data = await getLiveData();
     res.json(data);
   } catch (err) {
+    console.error("Live.json error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
 });
@@ -29,6 +38,13 @@ app.post("/end-match", async (req, res) => {
     await saveMatchData(matchCounter, req.body);
     res.json({ ok: true, match: matchCounter });
   } catch (err) {
+    console.error("End-match error:", err);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ✅ Important: Listen on Render's port
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
 });
